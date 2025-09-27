@@ -28,15 +28,36 @@ col_val  = st.selectbox("คอลัมน์ Value (จำนวน)", ["—�
 
 mode = st.radio("โหมดแสดงผล", ["ซ่อนชื่อ (ระดับฝ่าย)", "แสดงชื่อบุคคล"], horizontal=True)
 
-# ========== Filter ==========
+# ========== Filter (with Select All) ==========
 c1, c2 = st.columns(2)
-with c1:
-    sel_old = st.multiselect("เลือกฝ่ายเดิม", sorted(df[col_old].dropna().unique()),
-                             default=sorted(df[col_old].dropna().unique()))
-with c2:
-    sel_new = st.multiselect("เลือกฝ่ายใหม่", sorted(df[col_new].dropna().unique()),
-                             default=sorted(df[col_new].dropna().unique()))
 
+with c1:
+    all_old = sorted(df[col_old].dropna().unique())
+    sel_all_old = st.checkbox("เลือกทั้งหมด (ฝ่ายเดิม)", value=True, key="sel_all_old")
+    sel_old = st.multiselect(
+        "เลือกฝ่ายเดิม",
+        all_old,
+        default=all_old if sel_all_old else [],
+        key="old_multi"
+    )
+
+with c2:
+    all_new = sorted(df[col_new].dropna().unique())
+    sel_all_new = st.checkbox("เลือกทั้งหมด (ฝ่ายใหม่)", value=True, key="sel_all_new")
+    sel_new = st.multiselect(
+        "เลือกฝ่ายใหม่",
+        all_new,
+        default=all_new if sel_all_new else [],
+        key="new_multi"
+    )
+
+# ถ้า checkbox ติ๊กทั้งหมด แต่ user ไปลบค่าออกหมดใน multiselect ให้กันพังด้วย fallback
+if sel_all_old and len(sel_old) == 0:
+    sel_old = all_old
+if sel_all_new and len(sel_new) == 0:
+    sel_new = all_new
+
+# กรองข้อมูล
 df = df[df[col_old].isin(sel_old) & df[col_new].isin(sel_new)]
 if df.empty:
     st.warning("ไม่มีข้อมูลหลังจากกรอง")
@@ -45,11 +66,12 @@ if df.empty:
 # ========== Build Sankey ==========
 if mode == "ซ่อนชื่อ (ระดับฝ่าย)":
     if col_val != "—ไม่ใช้—":
-        # พยายามบังคับเป็นตัวเลข (ถ้าไม่ได้จะเตือน)
+        # บังคับ value เป็นตัวเลขถ้าเลือกคอลัมน์ Value
         try:
-            flows = df.groupby([col_old, col_new])[col_val].sum().reset_index(name="count")
+            df[col_val] = pd.to_numeric(df[col_val], errors="coerce")
+            flows = df.dropna(subset=[col_val]).groupby([col_old, col_new])[col_val].sum().reset_index(name="count")
         except Exception:
-            st.error("คอลัมน์ Value ต้องเป็นตัวเลข หรือเลือก '—ไม่ใช้—' เพื่อนับจำนวนแทน")
+            st.error("คอลัมน์ Value ต้องเป็นประเภทตัวเลข หรือเลือก '—ไม่ใช้—' เพื่อให้นับจำนวนแทน")
             st.stop()
     else:
         flows = df.groupby([col_old, col_new]).size().reset_index(name="count")
@@ -58,25 +80,25 @@ if mode == "ซ่อนชื่อ (ระดับฝ่าย)":
         st.warning("ไม่มีข้อมูลสำหรับวาด Sankey")
         st.stop()
 
+    # กำหนด node
     all_nodes = pd.Index(flows[col_old].tolist() + flows[col_new].tolist()).unique()
     node_idx  = {name: i for i, name in enumerate(all_nodes)}
-
-    sources = [node_idx[s] for s in flows[col_old]]
-    targets = [node_idx[t] for t in flows[col_new]]
-    values  = flows["count"].astype(float).tolist()
+    sources   = [node_idx[s] for s in flows[col_old]]
+    targets   = [node_idx[t] for t in flows[col_new]]
+    values    = flows["count"].astype(float).tolist()
 
     fig = go.Figure(data=[go.Sankey(
         arrangement="snap",
         node=dict(
             pad=30, thickness=25,
             label=all_nodes.tolist(),
-            line=dict(color="black", width=1.0)  # (ไม่มี node.font!)
+            line=dict(color="black", width=1.0)  # ไม่มี node.font!
         ),
         link=dict(source=sources, target=targets, value=values)
     )])
 
 else:
-    # โหมดแสดงชื่อบุคคล
+    # โหมดแสดงชื่อบุคคล (ค่าลิงก์=1)
     if col_name == "—ไม่ใช้—":
         st.error("กรุณาเลือกคอลัมน์ชื่อบุคคลเพื่อใช้โหมดนี้")
         st.stop()
@@ -93,7 +115,6 @@ else:
 
     all_nodes = pd.Index(pd.concat([sources_lbl, targets_lbl]).unique())
     node_idx  = {name: i for i, name in enumerate(all_nodes)}
-
     source_ids = [node_idx[s] for s in sources_lbl]
     target_ids = [node_idx[t] for t in targets_lbl]
 
@@ -102,12 +123,12 @@ else:
         node=dict(
             pad=30, thickness=25,
             label=all_nodes.tolist(),
-            line=dict(color="black", width=1.0)  # (ไม่มี node.font!)
+            line=dict(color="black", width=1.0)
         ),
         link=dict(source=source_ids, target=target_ids, value=values)
     )])
 
-# ฟอนต์ใหญ่ ชัดทั้งกราฟ (ตั้งใน layout)
+# ฟอนต์ใหญ่ ชัดทั้งกราฟ + tooltip ใหญ่ขึ้น
 fig.update_layout(
     title="Sankey Diagram",
     font=dict(color="black", size=18, family="Tahoma"),
