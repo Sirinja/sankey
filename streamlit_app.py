@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Excel → Sankey", layout="wide")
-st.title("📊 Sankey Diagram จาก Excel (แสดงจำนวนบนป้าย)")
+st.title("📊 Sankey Diagram จาก Excel")
 
 # ========== Upload ==========
 uploaded = st.file_uploader("อัปโหลดไฟล์ Excel", type=["xlsx"])
