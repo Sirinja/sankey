@@ -23,8 +23,8 @@ if df.empty:
 st.subheader("🔧 ตั้งค่า")
 col_old  = st.selectbox("คอลัมน์ Source (ฝ่ายเดิม)", df.columns)
 col_new  = st.selectbox("คอลัมน์ Target (ฝ่ายใหม่)", df.columns)
-col_name = st.selectbox("คอลัมน์ชื่อบุคคล", [None] + list(df.columns))
-col_val  = st.selectbox("คอลัมน์ Value (จำนวน)", [None] + list(df.columns))
+col_name = st.selectbox("คอลัมน์ชื่อบุคคล (ใช้ในโหมดแสดงชื่อ)", ["—ไม่ใช้—"] + list(df.columns))
+col_val  = st.selectbox("คอลัมน์ Value (จำนวน)", ["—ไม่ใช้—"] + list(df.columns))
 
 mode = st.radio("โหมดแสดงผล", ["ซ่อนชื่อ (ระดับฝ่าย)", "แสดงชื่อบุคคล"], horizontal=True)
 
@@ -44,8 +44,13 @@ if df.empty:
 
 # ========== Build Sankey ==========
 if mode == "ซ่อนชื่อ (ระดับฝ่าย)":
-    if col_val is not None:
-        flows = df.groupby([col_old, col_new])[col_val].sum().reset_index(name="count")
+    if col_val != "—ไม่ใช้—":
+        # พยายามบังคับเป็นตัวเลข (ถ้าไม่ได้จะเตือน)
+        try:
+            flows = df.groupby([col_old, col_new])[col_val].sum().reset_index(name="count")
+        except Exception:
+            st.error("คอลัมน์ Value ต้องเป็นตัวเลข หรือเลือก '—ไม่ใช้—' เพื่อนับจำนวนแทน")
+            st.stop()
     else:
         flows = df.groupby([col_old, col_new]).size().reset_index(name="count")
 
@@ -65,14 +70,14 @@ if mode == "ซ่อนชื่อ (ระดับฝ่าย)":
         node=dict(
             pad=30, thickness=25,
             label=all_nodes.tolist(),
-            line=dict(color="black", width=1.0)
+            line=dict(color="black", width=1.0)  # (ไม่มี node.font!)
         ),
         link=dict(source=sources, target=targets, value=values)
     )])
 
 else:
     # โหมดแสดงชื่อบุคคล
-    if col_name is None:
+    if col_name == "—ไม่ใช้—":
         st.error("กรุณาเลือกคอลัมน์ชื่อบุคคลเพื่อใช้โหมดนี้")
         st.stop()
 
@@ -97,15 +102,19 @@ else:
         node=dict(
             pad=30, thickness=25,
             label=all_nodes.tolist(),
-            line=dict(color="black", width=1.0)
+            line=dict(color="black", width=1.0)  # (ไม่มี node.font!)
         ),
         link=dict(source=source_ids, target=target_ids, value=values)
     )])
 
-# ฟอนต์ใหญ่ ชัดทั้งกราฟ (ตั้งใน layout แทน node.font)
+# ฟอนต์ใหญ่ ชัดทั้งกราฟ (ตั้งใน layout)
 fig.update_layout(
     title="Sankey Diagram",
-    font=dict(color="black", size=18, family="Tahoma")  # <- ตรงนี้!
+    font=dict(color="black", size=18, family="Tahoma"),
+    paper_bgcolor="white",
+    plot_bgcolor="white",
+    margin=dict(l=20, r=20, t=60, b=20),
+    hoverlabel=dict(font_size=16, font_family="Tahoma")
 )
 
 st.plotly_chart(fig, use_container_width=True)
