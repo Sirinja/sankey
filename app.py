@@ -2,15 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-# ------------------------
-# Config
-# ------------------------
 st.set_page_config(page_title="Sankey Rotation", layout="wide")
 st.title("📊 Sankey Diagram - การโยกย้ายบุคลากร")
 
-# ------------------------
-# Helpers (palette & font)
-# ------------------------
 PALETTE = ["#005CAB", "#00AEEF", "#78BE20", "#002D72", "#6C757D"]
 
 def repeat_palette(palette, n):
@@ -33,45 +27,77 @@ def choose_font_color(node_colors):
     dark_ratio = sum(1 for c in node_colors if hex_luminance(c) < 0.5) / max(len(node_colors), 1)
     return "white" if dark_ratio >= 0.6 else "black"
 
-# ------------------------
-# App
-# ------------------------
 uploaded = st.file_uploader("อัปโหลดไฟล์ Excel", type=["xlsx"])
-if uploaded:
-    sheet_name = "ตารางรายละเอียด"
-    data = pd.read_excel(uploaded, sheet_name=sheet_name, header=2)
 
-    COL_OLD  = "ส่วนงานเดิม"
-    COL_NAME = "คำนำหน้า ชื่อ - สกุล"
-    COL_NEW  = [c for c in data.columns if str(c).startswith("ส่วนงานใหม่")][0]
+if not uploaded:
+    st.info("อัปโหลดไฟล์ Excel (.xlsx) เพื่อเริ่มต้น")
+    st.stop()
 
-    df = data[[COL_OLD, COL_NEW, COL_NAME]].dropna(subset=[COL_OLD, COL_NEW])
+try:
+    xls = pd.ExcelFile(uploaded)
+    sheet = st.selectbox("เลือกชีต", xls.sheet_names, index=min( xls.sheet_names.index("ตารางรายละเอียด") if "ตารางรายละเอียด" in xls.sheet_names else 0, len(xls.sheet_names)-1))
+    header_row = st.number_input("แถวหัวตาราง (เริ่มที่ 0)", min_value=0, value=2, step=1)
+    data = pd.read_excel(xls, sheet_name=sheet, header=header_row)
+    if data.empty:
+        st.warning("ชีตนี้ไม่มีข้อมูลหลังอ่านด้วยแถวหัวที่กำหนด ลองเปลี่ยนค่าแถวหัวตาราง")
+        st.stop()
 
-    # 🔹 Filter panels
-    sel_old = st.multiselect("เลือกฝ่ายเดิม", sorted(df[COL_OLD].unique()), default=sorted(df[COL_OLD].unique()))
-    sel_new = st.multiselect("เลือกฝ่ายใหม่", sorted(df[COL_NEW].unique()), default=sorted(df[COL_NEW].unique()))
+    # เดาคอลัมน์ที่น่าจะใช่
+    def guess(prefix, default=None):
+        for c in data.columns:
+            if str(c).strip().startswith(prefix):
+                return c
+        return default
+
+    col_old_default  = guess("ส่วนงานเดิม", data.columns[0])
+    col_new_default  = guess("ส่วนงานใหม่", data.columns[min(1, len(data.columns)-1)])
+    col_name_default = guess("คำนำหน้า", data.columns[min(2, len(data.columns)-1)])
+
+    # ให้ผู้ใช้เลือกคอลัมน์
+    COL_OLD  = st.selectbox("คอลัมน์ฝ่ายเดิม", options=list(data.columns), index=list(data.columns).index(col_old_default))
+    COL_NEW  = st.selectbox("คอลัมน์ฝ่ายใหม่", options=list(data.columns), index=list(data.columns).index(col_new_default))
+    COL_NAME = st.selectbox("คอลัมน์ชื่อบุคคล (ใช้ในโหมดแสดงชื่อ)", options=list(data.columns), index=list(data.columns).index(col_name_default))
+
+    # ทำความสะอาดเบื้องต้น
+    df = data[[COL_OLD, COL_NEW, COL_NAME]].copy()
+    for c in [COL_OLD, COL_NEW, COL_NAME]:
+        df[c] = df[c].astype(str).str.strip()
+    df = df.replace({"": pd.NA}).dropna(subset=[COL_OLD, COL_NEW])
+
+    if df.empty:
+        st.warning("ไม่มีข้อมูลที่ทั้งฝ่ายเดิมและฝ่ายใหม่ไม่ว่าง")
+        st.stop()
+
+    # Filters
+    c1, c2 = st.columns(2)
+    with c1:
+        sel_old = st.multiselect("เลือกฝ่ายเดิม", sorted(df[COL_OLD].unique()), default=sorted(df[COL_OLD].unique()))
+    with c2:
+        sel_new = st.multiselect("เลือกฝ่ายใหม่", sorted(df[COL_NEW].unique()), default=sorted(df[COL_NEW].unique()))
 
     df = df[df[COL_OLD].isin(sel_old) & df[COL_NEW].isin(sel_new)]
+    if df.empty:
+        st.warning("ไม่มีข้อมูลหลังกรองฝ่ายเดิม/ฝ่ายใหม่")
+        st.stop()
 
-    mode = st.radio("โหมดแสดงผล", ["ซ่อนชื่อ (ระดับฝ่าย)", "แสดงชื่อบุคคล"])
+    mode = st.radio("โหมดแสดงผล", ["ซ่อนชื่อ (ระดับฝ่าย)", "แสดงชื่อบุคคล"], horizontal=True)
 
     if mode == "ซ่อนชื่อ (ระดับฝ่าย)":
-        flows = (
-            df.groupby([COL_OLD, COL_NEW], as_index=False)
-              .size()
-              .rename(columns={"size": "count"})
-        )
+        flows = df.groupby([COL_OLD, COL_NEW], as_index=False).size().rename(columns={"size": "count"})
+        if flows.empty:
+            st.warning("ไม่มีคู่โยกย้ายสำหรับวาด Sankey")
+            st.stop()
 
-        left_order = list(flows.groupby(COL_OLD)["count"].sum().sort_values(ascending=False).index)
+        left_order  = list(flows.groupby(COL_OLD)["count"].sum().sort_values(ascending=False).index)
         right_order = list(flows.groupby(COL_NEW)["count"].sum().sort_values(ascending=False).index)
 
-        left_index = {name: i for i, name in enumerate(left_order)}
+        left_index  = {name: i for i, name in enumerate(left_order)}
         right_index = {name: i + len(left_order) for i, name in enumerate(right_order)}
-        labels = left_order + right_order
+        labels      = left_order + right_order
 
         sources = [left_index[o] for o in flows[COL_OLD]]
         targets = [right_index[n] for n in flows[COL_NEW]]
-        values  = flows["count"].tolist()
+        values  = flows["count"].astype(int).tolist()
 
         node_colors = repeat_palette(PALETTE, len(labels))
         link_colors = [hex_to_rgba(node_colors[s], 0.45) for s in sources]
@@ -83,7 +109,7 @@ if uploaded:
                 label=labels, pad=18, thickness=18,
                 color=node_colors,
                 line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-                font=dict(color=font_color, size=14),  # <<< ฟอนต์ขนาด 14
+                font=dict(color=font_color, size=14),
                 hovertemplate="%{label}<extra></extra>"
             ),
             link=dict(
@@ -97,11 +123,17 @@ if uploaded:
             )
         )])
 
-    else:  # แสดงชื่อบุคคล
-        df["left_label"] = df[COL_OLD] + " : " + df[COL_NAME]
-        sources_lbl = df["left_label"]
-        targets_lbl = df[COL_NEW]
-        values      = [1] * len(df)
+    else:
+        # แสดงชื่อบุคคล (ค่าลิงก์=1)
+        d = df.dropna(subset=[COL_NAME]).copy()
+        if d.empty:
+            st.warning("คอลัมน์ชื่อบุคคลว่างทั้งหมด ไม่สามารถแสดงโหมดแสดงชื่อได้")
+            st.stop()
+
+        d["left_label"] = d[COL_OLD] + " : " + d[COL_NAME]
+        sources_lbl = d["left_label"]
+        targets_lbl = d[COL_NEW]
+        values      = [1] * len(d)
 
         all_nodes = pd.Index(pd.concat([sources_lbl, targets_lbl]).unique())
         node_idx  = {name: i for i, name in enumerate(all_nodes)}
@@ -118,7 +150,7 @@ if uploaded:
                 label=all_nodes.tolist(), pad=18, thickness=18,
                 color=node_colors,
                 line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-                font=dict(color=font_color, size=14),  # <<< ฟอนต์ขนาด 14
+                font=dict(color=font_color, size=14),
                 hovertemplate="%{label}<extra></extra>"
             ),
             link=dict(
@@ -132,3 +164,7 @@ if uploaded:
         )])
 
     st.plotly_chart(fig, use_container_width=True)
+
+except Exception as e:
+    st.error("เกิดข้อผิดพลาดในการประมวลผลไฟล์ กรุณาตรวจสอบว่าเลือกชีต/แถวหัว/คอลัมน์ถูกต้อง")
+    st.exception(e)  # แสดงรายละเอียดในหน้าแอปเพื่อดีบั๊กได้ทันที
