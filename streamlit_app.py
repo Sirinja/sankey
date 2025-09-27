@@ -26,6 +26,25 @@ def hex_to_rgba(hex_color: str, alpha: float = 0.45) -> str:
     r, g, b = (int(c[i:i+2], 16) for i in (0, 2, 4))
     return f"rgba({r},{g},{b},{alpha})"
 
+
+def hex_luminance(hex_color: str) -> float:
+    """Return relative luminance (0=dark, 1=light) from #RRGGBB."""
+    c = hex_color.lstrip("#")
+    r, g, b = [int(c[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+    # sRGB => linear
+    def lin(x): 
+        return x/12.92 if x <= 0.04045 else ((x+0.055)/1.055)**2.4
+    r, g, b = lin(r), lin(g), lin(b)
+    return 0.2126*r + 0.7152*g + 0.0722*b
+
+def choose_font_color(node_colors: list[str]) -> str:
+    """Auto choose 'black' or 'white' to maximize overall contrast."""
+    # คิดสัดส่วนโหนดที่ 'มืด' (luminance < 0.5)
+    dark_ratio = sum(1 for c in node_colors if hex_luminance(c) < 0.5) / max(len(node_colors), 1)
+    # ถ้าโหนดส่วนใหญ่ 'มืด' => ใช้ฟอนต์สีขาว, ไม่งั้นใช้ดำ
+    return "white" if dark_ratio >= 0.6 else "black"
+
+
 # ======================
 # Core Sankey builders
 # ======================
