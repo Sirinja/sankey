@@ -118,7 +118,7 @@ if uploaded:
                 label=all_nodes.tolist(), pad=18, thickness=18,
                 color=node_colors,
                 line=dict(color="rgba(0,0,0,0.25)", width=0.5),
-                font=dict(color=font_color, size=16),  # <<< ฟอนต์ขนาด 14
+                font=dict(color=font_color, size=14),  # <<< ฟอนต์ขนาด 14
                 hovertemplate="%{label}<extra></extra>"
             ),
             link=dict(
